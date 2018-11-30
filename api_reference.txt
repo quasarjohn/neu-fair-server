@@ -1,0 +1,29 @@
+============GET============
+
+** returns list of teams
+/api/teams
+
+** returns a specific team
+/api/teams/{team_name}
+
+** returns given scores by a judge to a specific team
+/api/scores/{team_name}/{judge_num}
+
+** returns a list of rankings
+/api/rankings
+
+
+============POST============
+
+** allows to insert or update an existing record
+** if the record already exists, it will just automatically update
+** params -> {
+"team_name": string,
+"criteria": string, 
+"judge_num": int,
+"score": int, 
+"timestamp": long
+}
+
+endpoint -> /api/scores
+
