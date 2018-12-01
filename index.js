@@ -1,14 +1,29 @@
 const Joi = require('joi');
 const DataAccess = require('./data_access');
 const express = require('express');
+const session = require('express-session');
+const cookieParser = require('cookie-parser');
+var cors = require('cors')
 
 const data_access = new DataAccess('localhost', 'neu_fair_system', 'root', 'neufairadmin18');
-const app = express();
+
+var app = express()
+
+app.use(cors({
+    origin: 'http://192.168.43.232:8081',
+    credentials: true
+}));
+
 app.use(express.json());
 
-app.get('/', (resq, res) => {
-    res.send('NEU api version 1')
-})
+app.use(cookieParser());
+var MemoryStore = session.MemoryStore;
+app.use(session({
+    name: 'app.sid',
+    secret: "1234567890QWERTY",
+    resave: true,
+    saveUninitialized: true
+}));
 
 //returns the list of teams with their team_name, college and the url of the college logo
 app.get('/api/teams', (req, res) => {
@@ -27,8 +42,10 @@ app.get('/api/teams/:team_name', (req, res) => {
 
 //returns the scores given by judge to a team per criteria
 app.get('/api/scores/:team_name/:judge_num', (req, res) => {
-    const { team_name } = req.params;
-    const { judge_num } = req.params;
+    const {
+        team_name,
+        judge_num
+    } = req.params;
     data_access.query(`select scores.criteria, 
     scores.score, scores.timestamp, criterias.percentage from scores 
     left join criterias on scores.criteria = criterias.criteria 
@@ -40,7 +57,9 @@ app.get('/api/scores/:team_name/:judge_num', (req, res) => {
 
 //returns all the scores given to a team by all judges
 app.get('/api/scores/:team_name', (req, res) => {
-    const { team_name } = req.params;
+    const {
+        team_name
+    } = req.params;
     data_access.query(`select scores.criteria, scores.judge_num, score, timestamp, percentage from scores 
     left join criterias on scores.criteria = criterias.criteria 
     where team_name = ? order by criteria`, [team_name],
@@ -82,10 +101,16 @@ app.put('/api/scores', (req, res) => {
 
     if (!validaton_result.error) {
         data_access.query('insert into scores set ?', req.body, (result, error) => {
-            //if there is duplicate, just update the existing
             if (error) {
+                //if there is duplicate, just update the existing
                 if (error.code == 'ER_DUP_ENTRY') {
-                    let { team_name, criteria, judge_num, score, timestamp } = req.body;
+                    let {
+                        team_name,
+                        criteria,
+                        judge_num,
+                        score,
+                        timestamp
+                    } = req.body;
                     data_access.query(`update scores set score = ?, timestamp = ? 
                     where team_name = ? AND criteria = ? AND judge_num = ?`,
                         [score, timestamp, team_name, criteria, judge_num], (r, e) => {
@@ -104,6 +129,59 @@ app.put('/api/scores', (req, res) => {
     } else {
         res.status(400).send(validaton_result.error.message);
     }
+});
+
+app.get('/login/:first_name/:last_name', (req, res) => {
+    req.session.first_name = req.params.first_name;
+    req.session.last_name = req.params.last_name;
+
+    res.send('session writtn')
+})
+
+app.post('/login', (req, res) => {
+
+    let schema = {
+        first_name: Joi.string().min(2).required(),
+        last_name: Joi.string().min(2).required()
+    }
+
+    let validation_result = Joi.validate(req.body, schema);
+
+    if (validation_result.error) {
+        return res.status(400).send(validation_result.error.message)
+    }
+
+    let {
+        first_name,
+        last_name
+    } = req.body;
+    req.session.first_name = first_name;
+    req.session.last_name = last_name;
+
+    data_access.query('select * from judges where first_name = ? and last_name = ?',
+        [first_name, last_name], (result, error) => {
+            if (error) {
+                return res.send(error.message)
+            }
+
+            if (result.length > 0) {
+                req.session.first_name = first_name;
+                req.session.last_name = last_name;
+                req.session.judge_num = result[0].judge_num;
+                req.session.save()
+                req.session.cookie.maxAge = 1 * 60 * 1000; // 1 minute 
+
+
+                return res.send(result[0]);
+            } else {
+                return res.send('User not found');
+            }
+        })
+});
+
+
+app.get('/', (req, res) => {
+    res.send(req.session)
 })
 
 const port = process.env.port || 8888;
