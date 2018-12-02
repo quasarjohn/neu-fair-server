@@ -110,7 +110,9 @@ app.get('/api/judges/scores/:judge_num', (req, res) => {
 
 //returns current rankings based on score, no tie breaker yet
 app.get('/api/rankings', (req, res) => {
-    data_access.query(`select team_name, (sum(score) / (select count(judge_num) from judges)) as average_score, (rank() over (order by sum(score) desc)) as ranking from scores group by team_name`, [],
+    data_access.query(`select team_name, (sum(score) / (select count(judge_num) from judges)) 
+    as average_score, (rank() over (order by sum(score) desc)) 
+    as ranking from scores group by team_name`, [],
         (result) => {
             res.send(result);
         });
