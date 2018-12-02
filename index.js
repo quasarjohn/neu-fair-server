@@ -27,7 +27,7 @@ app.use(session({
 
 //returns the list of teams with their team_name, college and the url of the college logo
 app.get('/api/teams', (req, res) => {
-    data_access.query('select * from teams', (result) => {
+    data_access.query('select team_name, college, logo from teams', [], (result) => {
         res.send(result);
     })
 });
@@ -79,6 +79,32 @@ app.get('/api/scores', (req, res) => {
         });
 });
 
+//returns total score of a team given by a specific judge
+app.get('/api/score/:team_name/:judge_num', (req, res) => {
+    let {
+        team_name,
+        judge_num
+    } = req.params
+    data_access.query('select sum(score) as score from scores where team_name = ? and judge_num = ?',
+        [team_name, judge_num],
+        (result) => {
+            res.send(result[0])
+        })
+});
+
+
+//returns the total score per team given by a specific judge.
+app.get('/api/judges/scores/:judge_num', (req, res) => {
+    data_access.query(`
+    select team_name, college, logo, judge_num, score from 
+    (select team_name, college, logo, judge_num, sum(score) as score from 
+    (select teams.team_name, teams.college, teams.logo, scores.judge_num, scores.score 
+    from teams left outer join scores on scores.team_name = teams.team_name ) as e 
+    group by team_name, judge_num) as f where judge_num = ? or judge_num is null`, [req.params.judge_num], (result) => {
+        res.send(result);
+    });
+})
+
 //returns current rankings based on score, no tie breaker yet
 app.get('/api/rankings', (req, res) => {
     data_access.query(`select team_name, (sum(score) / (select count(judge_num) from judges)) as average_score, (rank() over (order by sum(score) desc)) as ranking from scores group by team_name`, [],
@@ -114,20 +140,20 @@ app.put('/api/scores', (req, res) => {
                     data_access.query(`update scores set score = ?, timestamp = ? 
                     where team_name = ? AND criteria = ? AND judge_num = ?`,
                         [score, timestamp, team_name, criteria, judge_num], (r, e) => {
-                            if (e) return res.status(400).send(e.code);
+                            if (e) return res.send(e.code);
                             else {
                                 return res.send(r);
                             }
                         });
                 } else {
-                    return res.status(400).send(error.code)
+                    return res.send(error.code)
                 }
             } else {
                 return res.send(result)
             }
         })
     } else {
-        res.status(400).send(validaton_result.error.message);
+        res.send(validaton_result.error.message);
     }
 });
 
@@ -148,7 +174,7 @@ app.post('/login', (req, res) => {
     let validation_result = Joi.validate(req.body, schema);
 
     if (validation_result.error) {
-        return res.status(400).send(validation_result.error.message)
+        return res.send(validation_result.error.message)
     }
 
     let {
@@ -169,8 +195,7 @@ app.post('/login', (req, res) => {
                 req.session.last_name = last_name;
                 req.session.judge_num = result[0].judge_num;
                 req.session.save()
-                req.session.cookie.maxAge = 1 * 60 * 1000; // 1 minute 
-
+                req.session.cookie.maxAge = 30 * 60 * 1000; // 5 minutes
 
                 return res.send(result[0]);
             } else {
