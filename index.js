@@ -46,10 +46,13 @@ app.get('/api/scores/:team_name/:judge_num', (req, res) => {
         team_name,
         judge_num
     } = req.params;
-    data_access.query(`select scores.criteria, 
-    scores.score, scores.timestamp, criterias.percentage from scores 
-    left join criterias on scores.criteria = criterias.criteria 
-    where team_name = ? AND judge_num = ?`, [team_name, judge_num],
+    data_access.query(`select teams.team_name, 
+    judges.judge_num, criterias.criteria, criterias.percentage, scores.score
+    from teams join judges join criterias 
+    left join scores on scores.team_name = teams.team_name 
+    and scores.judge_num = judges.judge_num 
+    and scores.criteria = criterias.criteria 
+    where teams.team_name = ? and judges.judge_num = ?`, [team_name, judge_num],
         (result) => {
             res.send(result);
         })
@@ -100,7 +103,7 @@ app.get('/api/judges/scores/:judge_num', (req, res) => {
     (select team_name, college, logo, judge_num, sum(score) as score from 
     (select teams.team_name, teams.college, teams.logo, scores.judge_num, scores.score 
     from teams left outer join scores on scores.team_name = teams.team_name ) as e 
-    group by team_name, judge_num) as f where judge_num = ? or judge_num is null`, [req.params.judge_num], (result) => {
+    group by team_name, judge_num) as f where judge_num = ? or judge_num is null order by team_name`, [req.params.judge_num], (result) => {
         res.send(result);
     });
 })
@@ -120,12 +123,18 @@ app.put('/api/scores', (req, res) => {
         criteria: Joi.string().min(3).required(),
         judge_num: Joi.number().min(0).required(),
         score: Joi.number().min(0).max(100).required(),
-        timestamp: Joi.number().min(new Date().getTime()).required()
+        percentage: Joi.number()
     };
+
+    delete req.body.percentage;
+
+    let timestamp = new Date().getTime()
 
     let validaton_result = Joi.validate(req.body, schema);
 
     if (!validaton_result.error) {
+        req.body.timestamp = timestamp;
+
         data_access.query('insert into scores set ?', req.body, (result, error) => {
             if (error) {
                 //if there is duplicate, just update the existing
@@ -135,7 +144,6 @@ app.put('/api/scores', (req, res) => {
                         criteria,
                         judge_num,
                         score,
-                        timestamp
                     } = req.body;
                     data_access.query(`update scores set score = ?, timestamp = ? 
                     where team_name = ? AND criteria = ? AND judge_num = ?`,
@@ -146,7 +154,7 @@ app.put('/api/scores', (req, res) => {
                             }
                         });
                 } else {
-                    return res.send(error.code)
+                    return res.send(error)
                 }
             } else {
                 return res.send(result)
