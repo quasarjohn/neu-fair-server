@@ -99,11 +99,12 @@ app.get('/api/score/:team_name/:judge_num', (req, res) => {
 //returns the total score per team given by a specific judge.
 app.get('/api/judges/scores/:judge_num', (req, res) => {
     data_access.query(`
-    select team_name, college, logo, judge_num, score from 
-    (select team_name, college, logo, judge_num, sum(score) as score from 
-    (select teams.team_name, teams.college, teams.logo, scores.judge_num, scores.score 
-    from teams left outer join scores on scores.team_name = teams.team_name ) as e 
-    group by team_name, judge_num) as f where judge_num = ? or judge_num is null order by team_name`, [req.params.judge_num], (result) => {
+    select teams.team_name, teams.college, teams.logo, judges.judge_num, sum(scores.score) as score
+    from teams 
+    join judges 
+    left join scores on scores.team_name = teams.team_name and judges.judge_num = scores.judge_num
+    where judges.judge_num = ?
+    group by teams.team_name, judges.judge_num`, [req.params.judge_num], (result) => {
         res.send(result);
     });
 })
