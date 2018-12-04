@@ -59,10 +59,10 @@ const CRITERIAS = `
 
 const TEAMS = `
   ("Team Duncan", "Computer Studies", "ccs.jpg"), 
-  ("Team Berwolves", "Engineering", "eng.jpg"), 
-  ("Team Othy Bradley", "Accountancy", "acc.png"), 
-  ("team0", "CCS", "wow.png"), 
-  ("team1", "CCT", "galing.png")
+  ("Team Berwolves", "Engineering", "ccs.jpg"), 
+  ("Team Othy Bradley", "Accountancy", "ccs.png"), 
+  ("team0", "CCS", "ccs.png"), 
+  ("team1", "CCT", "ccs.png")
 `
 
 const SCORES = `
