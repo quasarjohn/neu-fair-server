@@ -111,12 +111,25 @@ app.get('/api/judges/scores/:judge_num', (req, res) => {
 
 //returns current rankings based on score, no tie breaker yet
 app.get('/api/rankings', (req, res) => {
-    data_access.query(`select team_name, (sum(score) / (select count(judge_num) from (select distinct judge_num from scores) as e)) 
-    as average_score, (rank() over (order by sum(score) desc)) 
-    as ranking from scores group by team_name`, [],
-        (result) => {
+    // data_access.query(`select team_name, (sum(score) / (select count(judge_num) from (select distinct judge_num from scores) as e)) 
+    // as average_score, (rank() over (order by sum(score) desc)) 
+    // as ranking from scores group by team_name`, [],
+    //     (result) => {
+    //         res.send(result);
+    //     });
+
+    data_access.query(`select teams.team_name, 
+    sum(scores.score) / (select count(judge_num) from (select distinct judge_num from scores) as e) as average_score, 
+        vote as tie_breaker_vote,
+        (rank() over (order by sum(score) desc, sum(tie_breaker.vote) desc)) as ranking
+        from teams 
+        left join scores 
+        on teams.team_name = scores.team_name
+        left join (select team_name, sum(vote) as vote from tie_breaker group by team_name) as tie_breaker
+        on tie_breaker.team_name = teams.team_name
+        group by teams.team_name`, [], (result) => {
             res.send(result);
-        });
+    })
 });
 
 app.put('/api/scores', (req, res) => {
@@ -218,6 +231,16 @@ app.post('/login', (req, res) => {
 
 app.get('/', (req, res) => {
     res.send(req.session)
+})
+
+app.get('/api/judges/votes', (req, res) => {
+    data_access.query(`select count(total_judges) as total_judges, count(voted_judges) as voted_judges
+    from (select distinct judges.judge_num as total_judges, 
+    scores.judge_num as voted_judges from judges 
+    left join scores 
+    on scores.judge_num = judges.judge_num) as e`, [], (result)=> {
+        res.send(result[0]);
+    })
 })
 
 const port = process.env.port || 8888;
