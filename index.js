@@ -25,18 +25,45 @@ app.use(session({
     saveUninitialized: true
 }));
 
-//returns the list of teams with their team_name, college and the url of the college logo
-app.get('/api/teams', (req, res) => {
-    data_access.query('select team_name, college, logo from teams', [], (result) => {
-        res.send(result);
-    })
-});
+//receives user credentials and performs session creation
+app.post('/login', (req, res) => {
 
-//returns a specific team
-app.get('/api/teams/:team_name', (req, res) => {
-    data_access.query('select * from teams where team_name = ?', [req.params.team_name],
-        (result) => {
-            res.send(result[0]);
+    //declare sturcture of the request body
+    let schema = {
+        first_name: Joi.string().min(2).required(),
+        last_name: Joi.string().min(2).required()
+    }
+
+    let validation_result = Joi.validate(req.body, schema);
+
+    if (validation_result.error) {
+        return res.send(validation_result.error.message)
+    }
+
+    let {
+        first_name,
+        last_name
+    } = req.body;
+    req.session.first_name = first_name;
+    req.session.last_name = last_name;
+
+    data_access.query('select * from judges where first_name = ? and last_name = ?',
+        [first_name, last_name], (result, error) => {
+            if (error) {
+                return res.send(error.message)
+            }
+
+            if (result.length > 0) {
+                req.session.first_name = first_name;
+                req.session.last_name = last_name;
+                req.session.judge_num = result[0].judge_num;
+                req.session.save()
+                req.session.cookie.maxAge = 30 * 60 * 1000; // 5 minutes
+
+                return res.send(result[0]);
+            } else {
+                return res.send('User not found');
+            }
         })
 });
 
@@ -58,44 +85,6 @@ app.get('/api/scores/:team_name/:judge_num', (req, res) => {
         })
 });
 
-//returns all the scores given to a team by all judges
-app.get('/api/scores/:team_name', (req, res) => {
-    const {
-        team_name
-    } = req.params;
-    data_access.query(`select scores.criteria, scores.judge_num, score, timestamp, percentage from scores 
-    left join criterias on scores.criteria = criterias.criteria 
-    where team_name = ? order by criteria`, [team_name],
-        (result) => {
-            res.send(result);
-        })
-});
-
-
-//returns all the scores from all teams
-app.get('/api/scores', (req, res) => {
-    data_access.query(`select team_name, scores.criteria, scores.judge_num, score, timestamp, percentage from scores 
-    left join criterias on scores.criteria = criterias.criteria 
-    order by criteria`, [],
-        (result) => {
-            res.send(result);
-        });
-});
-
-//returns total score of a team given by a specific judge
-app.get('/api/score/:team_name/:judge_num', (req, res) => {
-    let {
-        team_name,
-        judge_num
-    } = req.params
-    data_access.query('select sum(score) as score from scores where team_name = ? and judge_num = ?',
-        [team_name, judge_num],
-        (result) => {
-            res.send(result[0])
-        })
-});
-
-
 //returns the total score per team given by a specific judge.
 app.get('/api/judges/scores/:judge_num', (req, res) => {
     data_access.query(`
@@ -109,15 +98,8 @@ app.get('/api/judges/scores/:judge_num', (req, res) => {
     });
 })
 
-//returns current rankings based on score, no tie breaker yet
+//returns current rankings based on score
 app.get('/api/rankings', (req, res) => {
-    // data_access.query(`select team_name, (sum(score) / (select count(judge_num) from (select distinct judge_num from scores) as e)) 
-    // as average_score, (rank() over (order by sum(score) desc)) 
-    // as ranking from scores group by team_name`, [],
-    //     (result) => {
-    //         res.send(result);
-    //     });
-
     data_access.query(`select teams.team_name, 
     sum(scores.score) / (select count(judge_num) from (select distinct judge_num from scores) as e) as average_score, 
         vote as tie_breaker_vote,
@@ -132,6 +114,7 @@ app.get('/api/rankings', (req, res) => {
     })
 });
 
+//used to insert a score to the database
 app.put('/api/scores', (req, res) => {
     //validate if the structure of the posted json matches the database
     let schema = {
@@ -181,54 +164,6 @@ app.put('/api/scores', (req, res) => {
     }
 });
 
-app.get('/login/:first_name/:last_name', (req, res) => {
-    req.session.first_name = req.params.first_name;
-    req.session.last_name = req.params.last_name;
-
-    res.send('session writtn')
-})
-
-app.post('/login', (req, res) => {
-
-    let schema = {
-        first_name: Joi.string().min(2).required(),
-        last_name: Joi.string().min(2).required()
-    }
-
-    let validation_result = Joi.validate(req.body, schema);
-
-    if (validation_result.error) {
-        return res.send(validation_result.error.message)
-    }
-
-    let {
-        first_name,
-        last_name
-    } = req.body;
-    req.session.first_name = first_name;
-    req.session.last_name = last_name;
-
-    data_access.query('select * from judges where first_name = ? and last_name = ?',
-        [first_name, last_name], (result, error) => {
-            if (error) {
-                return res.send(error.message)
-            }
-
-            if (result.length > 0) {
-                req.session.first_name = first_name;
-                req.session.last_name = last_name;
-                req.session.judge_num = result[0].judge_num;
-                req.session.save()
-                req.session.cookie.maxAge = 30 * 60 * 1000; // 5 minutes
-
-                return res.send(result[0]);
-            } else {
-                return res.send('User not found');
-            }
-        })
-});
-
-
 app.get('/', (req, res) => {
     res.send(req.session)
 })
@@ -246,4 +181,59 @@ app.get('/api/judges/votes', (req, res) => {
 const port = process.env.port || 8888;
 app.listen(port, () => {
     console.log(`Listening on port ${port}`)
+});
+
+
+
+//unused endpoints
+
+//returns the list of teams with their team_name, college and the url of the college logo
+app.get('/api/teams', (req, res) => {
+    data_access.query('select team_name, college, logo from teams', [], (result) => {
+        res.send(result);
+    })
+});
+
+//returns all the scores given to a team by all judges
+app.get('/api/scores/:team_name', (req, res) => {
+    const {
+        team_name
+    } = req.params;
+    data_access.query(`select scores.criteria, scores.judge_num, score, timestamp, percentage from scores 
+    left join criterias on scores.criteria = criterias.criteria 
+    where team_name = ? order by criteria`, [team_name],
+        (result) => {
+            res.send(result);
+        })
+});
+
+//returns all the scores from all teams
+app.get('/api/scores', (req, res) => {
+    data_access.query(`select team_name, scores.criteria, scores.judge_num, score, timestamp, percentage from scores 
+    left join criterias on scores.criteria = criterias.criteria 
+    order by criteria`, [],
+        (result) => {
+            res.send(result);
+        });
+});
+
+//returns total score of a team given by a specific judge
+app.get('/api/score/:team_name/:judge_num', (req, res) => {
+    let {
+        team_name,
+        judge_num
+    } = req.params
+    data_access.query('select sum(score) as score from scores where team_name = ? and judge_num = ?',
+        [team_name, judge_num],
+        (result) => {
+            res.send(result[0])
+        })
+});
+
+//returns a specific team
+app.get('/api/teams/:team_name', (req, res) => {
+    data_access.query('select * from teams where team_name = ?', [req.params.team_name],
+        (result) => {
+            res.send(result[0]);
+        })
 });
