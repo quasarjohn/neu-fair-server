@@ -21,9 +21,15 @@ var MemoryStore = session.MemoryStore;
 app.use(session({
     name: 'app.sid',
     secret: "1234567890QWERTY",
-    resave: true,
+    resave: false,
     saveUninitialized: true
 }));
+
+//returns session information
+app.get('/', (req, res) => {
+    req.session.cookie.expires = new Date().getTime();
+    res.send(req.session)
+})
 
 //receives user credentials and performs session creation
 app.post('/login', (req, res) => {
@@ -66,6 +72,11 @@ app.post('/login', (req, res) => {
             }
         })
 });
+
+app.get('/logout', (req, res)=> {
+    req.session.destroy();
+    res.send('Logged out');
+})
 
 //returns the scores given by judge to a team per criteria
 app.get('/api/scores/:team_name/:judge_num', (req, res) => {
@@ -110,9 +121,19 @@ app.get('/api/rankings', (req, res) => {
         left join (select team_name, sum(vote) as vote from tie_breaker group by team_name) as tie_breaker
         on tie_breaker.team_name = teams.team_name
         group by teams.team_name`, [], (result) => {
-            res.send(result);
+        res.send(result);
     })
 });
+
+app.get('/api/judges/votes', (req, res) => {
+    data_access.query(`select count(total_judges) as total_judges, count(voted_judges) as voted_judges
+    from (select distinct judges.judge_num as total_judges, 
+    scores.judge_num as voted_judges from judges 
+    left join scores 
+    on scores.judge_num = judges.judge_num) as e`, [], (result) => {
+        res.send(result[0]);
+    })
+})
 
 //used to insert a score to the database
 app.put('/api/scores', (req, res) => {
@@ -164,76 +185,49 @@ app.put('/api/scores', (req, res) => {
     }
 });
 
-app.get('/', (req, res) => {
-    res.send(req.session)
+//write to tie breaker table
+app.put('/api/tiebreaker', (req, res) => {
+    let schema = {
+        team_name: Joi.string().required(),
+        judge_num: Joi.number().required(),
+        vote: Joi.number().min(1).max(1).required()
+    }
+
+    let validation_result = Joi.validate(req.body, schema);
+
+    //if the request body is valid
+    if (!validation_result.error) {
+        //insert to database
+        let timestamp = new Date().getTime();
+        req.body.timestamp = timestamp;
+
+        data_access.query(`insert into tie_breaker set ?`, req.body, (result, error) => {
+            if (error) {
+                return res.send(error);
+            } else {
+                return res.send(result);
+            }
+        })
+    } else {
+        res.send(validation_result.error.message);
+    }
 })
 
-app.get('/api/judges/votes', (req, res) => {
-    data_access.query(`select count(total_judges) as total_judges, count(voted_judges) as voted_judges
-    from (select distinct judges.judge_num as total_judges, 
-    scores.judge_num as voted_judges from judges 
+//gets the number of teams tied at the same spot
+app.get('/api/tiebreaker/count', (req, res) => {
+    data_access.query(`select ranking, team_count from (select ranking, count(team_name) 
+    as team_count from (select teams.team_name, sum(scores.score),
+    (rank() over (order by sum(score) desc)) as ranking
+    from teams 
     left join scores 
-    on scores.judge_num = judges.judge_num) as e`, [], (result)=> {
-        res.send(result[0]);
+    on teams.team_name = scores.team_name
+    group by teams.team_name) as f where ranking <= 3 group by ranking) as f where team_count > 1
+    `, [], (result) => {
+        res.send(result);
     })
 })
 
 const port = process.env.port || 8888;
 app.listen(port, () => {
     console.log(`Listening on port ${port}`)
-});
-
-
-
-//unused endpoints
-
-//returns the list of teams with their team_name, college and the url of the college logo
-app.get('/api/teams', (req, res) => {
-    data_access.query('select team_name, college, logo from teams', [], (result) => {
-        res.send(result);
-    })
-});
-
-//returns all the scores given to a team by all judges
-app.get('/api/scores/:team_name', (req, res) => {
-    const {
-        team_name
-    } = req.params;
-    data_access.query(`select scores.criteria, scores.judge_num, score, timestamp, percentage from scores 
-    left join criterias on scores.criteria = criterias.criteria 
-    where team_name = ? order by criteria`, [team_name],
-        (result) => {
-            res.send(result);
-        })
-});
-
-//returns all the scores from all teams
-app.get('/api/scores', (req, res) => {
-    data_access.query(`select team_name, scores.criteria, scores.judge_num, score, timestamp, percentage from scores 
-    left join criterias on scores.criteria = criterias.criteria 
-    order by criteria`, [],
-        (result) => {
-            res.send(result);
-        });
-});
-
-//returns total score of a team given by a specific judge
-app.get('/api/score/:team_name/:judge_num', (req, res) => {
-    let {
-        team_name,
-        judge_num
-    } = req.params
-    data_access.query('select sum(score) as score from scores where team_name = ? and judge_num = ?',
-        [team_name, judge_num],
-        (result) => {
-            res.send(result[0])
-        })
-});
-
-//returns a specific team
-app.get('/api/teams/:team_name', (req, res) => {
-    data_access.query('select * from teams where team_name = ?', [req.params.team_name],
-        (result) => {
-            res.send(result[0]);
-        })
 });

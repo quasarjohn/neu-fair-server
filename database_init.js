@@ -1,5 +1,6 @@
 /** 
  * This script is run only once when initializing the database for the first time.
+ * Initialize database for testing purposes
 */
 var mysql = require('mysql');
 var write_test_data = true;
