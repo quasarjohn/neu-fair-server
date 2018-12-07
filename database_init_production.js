@@ -53,7 +53,7 @@ const CREATE_TIE_BREAKER_QUERY = `create table tie_breaker (
   timestamp long not null,
   foreign key(team_name) references teams(team_name), 
   foreign key(judge_num) references judges(judge_num), 
-  primary key(team_name, judge_num)
+  primary key(judge_num)
 )
 `
 

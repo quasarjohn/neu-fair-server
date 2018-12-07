@@ -73,7 +73,7 @@ app.post('/login', (req, res) => {
         })
 });
 
-app.get('/logout', (req, res)=> {
+app.get('/logout', (req, res) => {
     req.session.destroy();
     res.send('Logged out');
 })
@@ -109,20 +109,35 @@ app.get('/api/judges/scores/:judge_num', (req, res) => {
     });
 })
 
-//returns current rankings based on score
-app.get('/api/rankings', (req, res) => {
-    data_access.query(`select teams.team_name, 
+//returns list of teams with current rankings
+app.get('/api/teams/:tiebreaker?/:ranking?', (req, res) => {
+    let tiebreaker_rank = ''
+    if (req.query.tiebreaker == 'true') {
+        tiebreaker_rank = ', sum(tie_breaker.vote) desc'
+    }
+
+    let query = `select teams.team_name, teams.college, teams.logo,
     sum(scores.score) / (select count(judge_num) from (select distinct judge_num from scores) as e) as average_score, 
         vote as tie_breaker_vote,
-        (rank() over (order by sum(score) desc, sum(tie_breaker.vote) desc)) as ranking
+        (rank() over (order by sum(score) desc ${tiebreaker_rank})) as ranking
         from teams 
         left join scores 
         on teams.team_name = scores.team_name
         left join (select team_name, sum(vote) as vote from tie_breaker group by team_name) as tie_breaker
         on tie_breaker.team_name = teams.team_name
-        group by teams.team_name`, [], (result) => {
-        res.send(result);
-    })
+        group by teams.team_name`
+
+    let query_with_ranking = `select * from (${query}) as g where ranking = ${req.query.ranking}`
+
+    if (req.query.ranking == undefined) {
+        data_access.query(query, [], (result) => {
+            res.send(result);
+        })
+    } else {
+        data_access.query(query_with_ranking, [], (result) => {
+            res.send(result);
+        })
+    }
 });
 
 app.get('/api/judges/votes', (req, res) => {
@@ -226,6 +241,27 @@ app.get('/api/tiebreaker/count', (req, res) => {
         res.send(result);
     })
 })
+
+//gets the number of votes cast for the tie breaker
+app.get('/api/tiebreaker/votes/:judge_num', (req, res) => {
+    data_access.query(`select count(judges.judge_num) as total_judges, 
+    count(tie_breaker.judge_num) as voted_judges
+    from judges left join tie_breaker 
+    on tie_breaker.judge_num = judges.judge_num`, [], (result) => {
+
+        data_access.query(`select * from tie_breaker where judge_num = ?`,
+            [req.params.judge_num], (result1) => {
+                if (result1.length != 0) {
+                    result[0].voted = true
+                } else {
+                    result[0].voted = false
+                }
+                res.send(result[0]);
+            })
+
+    })
+})
+
 
 const port = process.env.port || 8888;
 app.listen(port, () => {
